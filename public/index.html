@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prompt Library</title>
+    <style>
+        :root { font-family: system-ui, Arial, sans-serif; color: #172033; background: #f7f8fb; }
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+        header { background: white; border-bottom: 1px solid #e1e5ed; }
+        .wrap { max-width: 1050px; margin: auto; padding: 22px; }
+        .top, .toolbar, .pager, .actions, .auth-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .top { justify-content: space-between; }
+        h1 { margin: 0; font-size: 26px; }
+        h2 { margin: 0 0 14px; }
+        p { line-height: 1.5; }
+        .muted, #userStatus, #pageInfo { color: #5c6678; }
+        .toolbar { margin: 10px 0 20px; }
+        .toolbar input { flex: 1; min-width: 200px; }
+        input, textarea, select { padding: 11px 12px; border: 1px solid #cbd2df; border-radius: 8px; font: inherit; background: white; }
+        textarea { width: 100%; min-height: 170px; resize: vertical; }
+        button { padding: 10px 15px; border: 0; border-radius: 8px; background: #2955d9; color: white; font: inherit; cursor: pointer; }
+        button.secondary { background: #e7ebf5; color: #172033; }
+        button.danger { background: #b82f3b; }
+        button:disabled { opacity: .45; cursor: not-allowed; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+        .card, .panel { background: white; border: 1px solid #e1e5ed; border-radius: 12px; padding: 20px; }
+        .card h3 { margin: 0 0 8px; }
+        .card p { color: #536073; min-height: 48px; overflow-wrap: anywhere; }
+        .tags { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+        .tag { background: #ebf0ff; color: #2949ab; padding: 5px 9px; border-radius: 20px; font-size: 12px; }
+        .pager { justify-content: center; margin: 25px 0; }
+        .prompt-body { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #f1f4fa; border-radius: 8px; }
+        #message { min-height: 22px; margin-top: 8px; color: #b82f3b; }
+        #message.ok { color: #1a7652; }
+        dialog { border: 1px solid #d8deea; border-radius: 12px; padding: 25px; width: min(480px, calc(100vw - 28px)); }
+        dialog::backdrop { background: rgba(0, 0, 0, .5); }
+        dialog form { display: grid; gap: 12px; }
+        dialog label { display: grid; gap: 5px; }
+        .auth-row { justify-content: space-between; }
+        [hidden] { display: none !important; }
+        @media (max-width: 560px) { .toolbar input, .toolbar select { width: 100%; } }
+    </style>
+</head>
+<body>
+<header>
+    <div class="wrap top">
+        <h1>Prompt Library</h1>
+        <div class="actions">
+            <span id="userStatus">Not signed in</span>
+            <button id="loginBtn" type="button">Log in / Register</button>
+            <button id="logoutBtn" class="secondary" type="button" hidden>Log out</button>
+        </div>
+    </div>
+</header>
+
+<main class="wrap">
+    <p id="message" role="status" aria-live="polite"></p>
+    <div class="toolbar">
+        <input id="search" type="search" placeholder="Search prompt titles and content..." aria-label="Search prompts" />
+        <select id="tagFilter" aria-label="Filter by tag"><option value="">All tags</option></select>
+        <button id="newBtn" type="button" hidden>+ New prompt</button>
+    </div>
+
+    <section id="listView">
+        <div id="cards" class="cards"></div>
+        <div class="pager">
+            <button id="prevBtn" class="secondary" type="button">Previous</button>
+            <span id="pageInfo"></span>
+            <button id="nextBtn" class="secondary" type="button">Next</button>
+        </div>
+    </section>
+
+    <section id="detailView" hidden>
+        <button id="backBtn" class="secondary" type="button">← Back to prompts</button>
+        <div class="panel" style="margin-top: 16px">
+            <h2 id="detailTitle"></h2>
+            <div id="detailTags" class="tags"></div>
+            <p id="detailBody" class="prompt-body"></p>
+            <div class="actions">
+                <button id="copyBtn" type="button">Copy prompt</button>
+                <button id="shareBtn" class="secondary" type="button">Copy share link</button>
+                <button id="editBtn" class="secondary" type="button" hidden>Edit</button>
+                <button id="deleteBtn" class="danger" type="button" hidden>Delete</button>
+            </div>
+        </div>
+    </section>
+</main>
+
+<dialog id="authDialog">
+    <form id="authForm">
+        <h2 id="authTitle">Log in</h2>
+        <label>Email <input id="email" type="email" required autocomplete="email" /></label>
+        <label>Password <input id="password" type="password" minlength="8" required autocomplete="current-password" /></label>
+        <div class="auth-row">
+            <button type="submit" id="authSubmit">Log in</button>
+            <button type="button" id="switchAuth" class="secondary">Create account</button>
+            <button type="button" id="closeAuth" class="secondary">Cancel</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog id="editorDialog">
+    <form id="editorForm">
+        <h2 id="editorTitle">New prompt</h2>
+        <label>Title <input id="promptTitle" required maxlength="120" /></label>
+        <label>Prompt body <textarea id="promptBody" required></textarea></label>
+        <label>Tags (comma separated) <input id="promptTags" placeholder="coding, writing, study" /></label>
+        <div class="actions">
+            <button type="submit">Save prompt</button>
+            <button type="button" id="cancelEditor" class="secondary">Cancel</button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+    const $ = id => document.getElementById(id);
+    const state = { user: null, q: '', tag: '', page: 1, totalPages: 1, detail: null, editingId: null };
+    let authMode = 'login';
+
+    async function api(path, options = {}) {
+        const response = await fetch(path, {
+            credentials: 'same-origin',
+            ...options,
+            headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
+        });
+        if (response.status === 204) return null;
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    function message(text, success = false) {
+        $('message').textContent = text;
+        $('message').className = success ? 'ok' : '';
+    }
+
+    function updateAuthUI() {
+        $('userStatus').textContent = state.user ? state.user.email : 'Not signed in';
+        $('loginBtn').hidden = !!state.user;
+        $('logoutBtn').hidden = !state.user;
+        $('newBtn').hidden = !state.user;
+        if (state.detail) renderOwnerButtons();
+    }
+
+    function renderTags(target, tags) {
+        target.replaceChildren();
+        tags.forEach(tag => {
+            const el = document.createElement('span');
+            el.className = 'tag';
+            el.textContent = tag;
+            target.append(el);
+        });
+    }
+
+    function makeCard(prompt) {
+        const card = document.createElement('article');
+        card.className = 'card';
+        const title = document.createElement('h3');
+        title.textContent = prompt.title;
+        const description = document.createElement('p');
+        description.textContent = prompt.body.length > 140 ? prompt.body.slice(0, 140) + '…' : prompt.body;
+        const tags = document.createElement('div');
+        tags.className = 'tags';
+        renderTags(tags, prompt.tags);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'View prompt';
+        button.addEventListener('click', () => { location.hash = '/prompts/' + encodeURIComponent(prompt.id); });
+        card.append(title, description, tags, button);
+        return card;
+    }
+
+    async function loadPrompts() {
+        try {
+            const params = new URLSearchParams({ q: state.q, tag: state.tag, page: String(state.page), limit: '6' });
+            const result = await api('/api/prompts?' + params);
+            state.totalPages = result.totalPages;
+            const cards = $('cards');
+            cards.replaceChildren();
+            result.items.forEach(prompt => cards.append(makeCard(prompt)));
+            if (!result.items.length) cards.textContent = 'No prompts found.';
+            $('pageInfo').textContent = `Page ${result.page} of ${Math.max(1, result.totalPages)} · ${result.total} prompts`;
+            $('prevBtn').disabled = state.page <= 1;
+            $('nextBtn').disabled = state.page >= state.totalPages;
+        } catch (error) { message('Could not load prompts: ' + error.message); }
+    }
+
+    async function loadTags() {
+        try {
+            const tags = await api('/api/tags');
+            $('tagFilter').replaceChildren(new Option('All tags', ''));
+            tags.forEach(tag => $('tagFilter').add(new Option(tag, tag)));
+            $('tagFilter').value = state.tag;
+        } catch (error) { message('Could not load tags: ' + error.message); }
+    }
+
+    function renderOwnerButtons() {
+        const owns = !!state.user && state.detail?.authorId === state.user.id;
+        $('editBtn').hidden = !owns;
+        $('deleteBtn').hidden = !owns;
+    }
+
+    async function showDetail(id) {
+        try {
+            const prompt = await api('/api/prompts/' + encodeURIComponent(id));
+            state.detail = prompt;
+            $('detailTitle').textContent = prompt.title;
+            $('detailBody').textContent = prompt.body;
+            renderTags($('detailTags'), prompt.tags);
+            renderOwnerButtons();
+            $('listView').hidden = true;
+            $('detailView').hidden = false;
+        } catch (error) { message('Could not open prompt: ' + error.message); location.hash = ''; }
+    }
+
+    function route() {
+        const match = location.hash.match(/^#\/prompts\/([^/?]+)/);
+        if (match) return showDetail(decodeURIComponent(match[1]));
+        state.detail = null;
+        $('listView').hidden = false;
+        $('detailView').hidden = true;
+    }
+
+    function openEditor(prompt = null) {
+        if (!state.user) return $('authDialog').showModal();
+        state.editingId = prompt?.id || null;
+        $('editorTitle').textContent = prompt ? 'Edit prompt' : 'New prompt';
+        $('promptTitle').value = prompt?.title || '';
+        $('promptBody').value = prompt?.body || '';
+        $('promptTags').value = prompt?.tags.join(', ') || '';
+        $('editorDialog').showModal();
+    }
+
+    function updateAuthMode() {
+        const register = authMode === 'register';
+        $('authTitle').textContent = register ? 'Create account' : 'Log in';
+        $('authSubmit').textContent = register ? 'Register' : 'Log in';
+        $('switchAuth').textContent = register ? 'Already have an account?' : 'Create account';
+        $('password').autocomplete = register ? 'new-password' : 'current-password';
+    }
+
+    $('loginBtn').addEventListener('click', () => $('authDialog').showModal());
+    $('closeAuth').addEventListener('click', () => $('authDialog').close());
+    $('switchAuth').addEventListener('click', () => {
+        authMode = authMode === 'login' ? 'register' : 'login';
+        updateAuthMode();
+    });
+    $('authForm').addEventListener('submit', async event => {
+        event.preventDefault();
+        try {
+            state.user = await api('/api/auth/' + authMode, {
+                method: 'POST',
+                body: JSON.stringify({ email: $('email').value, password: $('password').value })
+            });
+            $('authDialog').close();
+            $('authForm').reset();
+            updateAuthUI();
+            message('Signed in successfully.', true);
+        } catch (error) { message(error.message); }
+    });
+    $('logoutBtn').addEventListener('click', async () => {
+        try {
+            await api('/api/auth/logout', { method: 'POST' });
+            state.user = null;
+            updateAuthUI();
+            message('Logged out.', true);
+        } catch (error) { message(error.message); }
+    });
+
+    let searchTimer;
+    $('search').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            state.q = $('search').value.trim();
+            state.page = 1;
+            location.hash = '';
+            loadPrompts();
+        }, 250);
+    });
+    $('tagFilter').addEventListener('change', () => {
+        state.tag = $('tagFilter').value;
+        state.page = 1;
+        location.hash = '';
+        loadPrompts();
+    });
+    $('prevBtn').addEventListener('click', () => { state.page--; loadPrompts(); });
+    $('nextBtn').addEventListener('click', () => { state.page++; loadPrompts(); });
+    $('backBtn').addEventListener('click', () => { location.hash = ''; });
+    $('newBtn').addEventListener('click', () => openEditor());
+    $('cancelEditor').addEventListener('click', () => $('editorDialog').close());
+    $('editBtn').addEventListener('click', () => openEditor(state.detail));
+    $('editorForm').addEventListener('submit', async event => {
+        event.preventDefault();
+        const payload = {
+            title: $('promptTitle').value.trim(),
+            body: $('promptBody').value.trim(),
+            tags: $('promptTags').value.split(',').map(tag => tag.trim()).filter(Boolean)
+        };
+        try {
+            const saved = await api(state.editingId ? '/api/prompts/' + encodeURIComponent(state.editingId) : '/api/prompts', {
+                method: state.editingId ? 'PUT' : 'POST',
+                body: JSON.stringify(payload)
+            });
+            $('editorDialog').close();
+            await Promise.all([loadTags(), loadPrompts()]);
+            message('Prompt saved.', true);
+            if (location.hash === '#/prompts/' + encodeURIComponent(saved.id)) await showDetail(saved.id);
+            else location.hash = '/prompts/' + encodeURIComponent(saved.id);
+        } catch (error) { message(error.message); }
+    });
+    $('deleteBtn').addEventListener('click', async () => {
+        if (!state.detail || !confirm('Delete this prompt?')) return;
+        try {
+            await api('/api/prompts/' + encodeURIComponent(state.detail.id), { method: 'DELETE' });
+            location.hash = '';
+            await Promise.all([loadPrompts(), loadTags()]);
+            message('Prompt deleted.', true);
+        } catch (error) { message(error.message); }
+    });
+    $('copyBtn').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(state.detail.body); message('Prompt copied!', true); }
+        catch { message('Clipboard access failed. Use localhost or HTTPS.'); }
+    });
+    $('shareBtn').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(location.href); message('Share link copied!', true); }
+        catch { message('Could not copy link.'); }
+    });
+    window.addEventListener('hashchange', route);
+
+    (async function start() {
+        try { state.user = await api('/api/auth/me'); } catch { state.user = null; }
+        updateAuthUI();
+        await Promise.all([loadPrompts(), loadTags()]);
+        await route();
+    })();
+</script>
+</body>
+</html>
